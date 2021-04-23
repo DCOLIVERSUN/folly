@@ -16,10 +16,11 @@
 
 #include <folly/fibers/Fiber.h>
 
-#include <glog/logging.h>
 #include <algorithm>
 #include <cstring>
 #include <stdexcept>
+
+#include <glog/logging.h>
 
 #include <folly/Likely.h>
 #include <folly/Portability.h>
@@ -135,6 +136,10 @@ void Fiber::recordStackPosition() {
     DCHECK_EQ(state_, NOT_STARTED);
 
     threadId_ = localThreadId();
+    if (taskOptions_.logRunningTime) {
+      prevDuration_ = std::chrono::microseconds(0);
+      currStartTime_ = std::chrono::steady_clock::now();
+    }
     state_ = RUNNING;
 
     try {
@@ -176,14 +181,23 @@ void Fiber::preempt(State state) {
       CHECK_EQ(fiberManager_.numUncaughtExceptions_, uncaught_exceptions());
     }
 
+    if (taskOptions_.logRunningTime) {
+      auto now = std::chrono::steady_clock::now();
+      prevDuration_ += now - currStartTime_;
+      currStartTime_ = now;
+    }
     state_ = state;
 
     recordStackPosition();
 
     fiberManager_.deactivateFiber(this);
 
+    // Resumed from preemption
     DCHECK_EQ(fiberManager_.activeFiber_, this);
     DCHECK_EQ(state_, READY_TO_RUN);
+    if (taskOptions_.logRunningTime) {
+      currStartTime_ = std::chrono::steady_clock::now();
+    }
     state_ = RUNNING;
   };
 

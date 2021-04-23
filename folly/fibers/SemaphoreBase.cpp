@@ -147,7 +147,7 @@ coro::Task<void> SemaphoreBase::co_wait_common(int64_t tokens) {
         // sure that we aren't reading it concurrently with a potential write
         // from a thread requesting cancellation.
         if (cancelled) {
-          co_yield folly::coro::co_error(folly::OperationCancelled{});
+          co_yield folly::coro::co_cancelled;
         }
 
         co_return;
@@ -163,14 +163,11 @@ coro::Task<void> SemaphoreBase::co_wait_common(int64_t tokens) {
 
 #endif
 
-#if FOLLY_FUTURE_USING_FIBER
-
 namespace {
 
 class FutureWaiter final : public fibers::Baton::Waiter {
  public:
-  explicit FutureWaiter(int64_t tokens)
-      : semaphoreWaiter(SemaphoreBase::Waiter(tokens)) {
+  explicit FutureWaiter(int64_t tokens) : semaphoreWaiter(tokens) {
     semaphoreWaiter.baton.setWaiter(*this);
   }
 
@@ -206,8 +203,6 @@ SemiFuture<Unit> SemaphoreBase::future_wait_common(int64_t tokens) {
       std::memory_order_acquire));
   return makeSemiFuture();
 }
-
-#endif
 
 size_t SemaphoreBase::getCapacity() const {
   return capacity_;

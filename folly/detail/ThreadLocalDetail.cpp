@@ -15,10 +15,11 @@
  */
 
 #include <folly/detail/ThreadLocalDetail.h>
-#include <folly/synchronization/CallOnce.h>
 
 #include <list>
 #include <mutex>
+
+#include <folly/synchronization/CallOnce.h>
 
 constexpr auto kSmallGrowthFactor = 1.1;
 constexpr auto kBigGrowthFactor = 1.7;
@@ -76,7 +77,7 @@ StaticMetaBase::StaticMetaBase(ThreadEntry* (*threadEntry)(), bool strict)
 
 ThreadEntryList* StaticMetaBase::getThreadEntryList() {
 #ifdef FOLLY_TLD_USE_FOLLY_TLS
-  static FOLLY_TLS ThreadEntryList threadEntryListSingleton;
+  static thread_local ThreadEntryList threadEntryListSingleton;
   return &threadEntryListSingleton;
 #else
   class PthreadKey {
@@ -87,9 +88,7 @@ ThreadEntryList* StaticMetaBase::getThreadEntryList() {
       PthreadKeyUnregister::registerKey(pthreadKey_);
     }
 
-    FOLLY_ALWAYS_INLINE pthread_key_t get() const {
-      return pthreadKey_;
-    }
+    FOLLY_ALWAYS_INLINE pthread_key_t get() const { return pthreadKey_; }
 
    private:
     pthread_key_t pthreadKey_;
@@ -318,9 +317,7 @@ void StaticMetaBase::destroy(EntryID* ent) {
 }
 
 ElementWrapper* StaticMetaBase::reallocate(
-    ThreadEntry* threadEntry,
-    uint32_t idval,
-    size_t& newCapacity) {
+    ThreadEntry* threadEntry, uint32_t idval, size_t& newCapacity) {
   size_t prevCapacity = threadEntry->getElementsCapacity();
 
   // Growth factor < 2, see folly/docs/FBVector.md; + 5 to prevent
@@ -369,7 +366,7 @@ ElementWrapper* StaticMetaBase::reallocate(
       assert(newByteSize / sizeof(ElementWrapper) >= newCapacity);
       newCapacity = newByteSize / sizeof(ElementWrapper);
     } else {
-      throw std::bad_alloc();
+      throw_exception<std::bad_alloc>();
     }
   } else { // no jemalloc
     // calloc() is simpler than malloc() followed by memset(), and
@@ -378,7 +375,7 @@ ElementWrapper* StaticMetaBase::reallocate(
     reallocated = static_cast<ElementWrapper*>(
         calloc(newCapacity, sizeof(ElementWrapper)));
     if (!reallocated) {
-      throw std::bad_alloc();
+      throw_exception<std::bad_alloc>();
     }
   }
 

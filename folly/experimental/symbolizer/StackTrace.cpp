@@ -21,14 +21,15 @@
 #include <folly/CppAttributes.h>
 #include <folly/Portability.h>
 #include <folly/portability/Config.h>
+#include <folly/tracing/AsyncStack.h>
 
 #if FOLLY_HAVE_LIBUNWIND
 // Must be first to ensure that UNW_LOCAL_ONLY is defined
 #define UNW_LOCAL_ONLY 1
-#include <libunwind.h>
+#include <folly/portability/Libunwind.h>
 #endif
 
-#if FOLLY_USE_SYMBOLIZER
+#if FOLLY_HAVE_BACKTRACE
 #include <execinfo.h>
 #endif
 
@@ -54,9 +55,11 @@ ssize_t getStackTrace(
 #if FOLLY_HAVE_LIBUNWIND && defined(UNW_VERSION)
   int r = unw_backtrace(reinterpret_cast<void**>(addresses), maxAddresses);
   return r < 0 ? -1 : r;
-#elif FOLLY_USE_SYMBOLIZER
+#elif FOLLY_HAVE_BACKTRACE
   int r = backtrace(reinterpret_cast<void**>(addresses), maxAddresses);
   return r < 0 ? -1 : r;
+#elif FOLLY_HAVE_LIBUNWIND
+  return getStackTraceSafe(addresses, maxAddresses);
 #else
   return -1;
 #endif
@@ -119,12 +122,27 @@ ssize_t getStackTraceInPlace(
 
 #endif // FOLLY_HAVE_LIBUNWIND
 
+// Helper struct for manually walking the stack using stack frame pointers
+struct StackFrame {
+  StackFrame* parentFrame;
+  void* returnAddress;
+};
+
 } // namespace
 
 ssize_t getStackTraceSafe(
     FOLLY_MAYBE_UNUSED uintptr_t* addresses,
     FOLLY_MAYBE_UNUSED size_t maxAddresses) {
-#if FOLLY_HAVE_LIBUNWIND
+#if defined(__APPLE__)
+  // While Apple platforms support libunwind, the unw_init_local,
+  // unw_step step loop does not cross the boundary from async signal
+  // handlers to the aborting code, while `backtrace` from execinfo.h
+  // does. `backtrace` is not explicitly documented on either macOS or
+  // Linux to be async-signal-safe, but the implementation in
+  // https://opensource.apple.com/source/Libc/Libc-1353.60.8/, and it is
+  // widely used in signal handlers in practice.
+  return backtrace(reinterpret_cast<void**>(addresses), maxAddresses);
+#elif FOLLY_HAVE_LIBUNWIND
   unw_context_t context;
   unw_cursor_t cursor;
   return getStackTraceInPlace(context, cursor, addresses, maxAddresses);
@@ -151,5 +169,43 @@ ssize_t getStackTraceHeap(
   return -1;
 #endif
 }
+
+ssize_t getAsyncStackTraceSafe(uintptr_t* addresses, size_t maxAddresses) {
+  size_t numFrames = 0;
+  const auto* asyncStackRoot = tryGetCurrentAsyncStackRoot();
+  // If we have no async stack root, this should return no frames.
+  // If we do have a stack root, also include the current return address.
+  if (asyncStackRoot != nullptr && numFrames < maxAddresses) {
+    addresses[numFrames++] = (uintptr_t)FOLLY_ASYNC_STACK_RETURN_ADDRESS();
+  }
+  for (const auto* normalStackFrame =
+           (StackFrame*)FOLLY_ASYNC_STACK_FRAME_POINTER();
+       normalStackFrame != nullptr && asyncStackRoot != nullptr &&
+       numFrames < maxAddresses;
+       normalStackFrame = normalStackFrame->parentFrame) {
+    // Walk the normal stack to find the caller of the frame that holds the
+    // AsyncStackRoot. If the caller holds the AsyncStackRoot, then the
+    // current frame is part of an async operation, and we should get the
+    // async stack trace before adding the current frame.
+    if (normalStackFrame->parentFrame ==
+        asyncStackRoot->getStackFramePointer()) {
+      // Follow the async stack trace starting from the root
+      numFrames += getAsyncStackTraceFromInitialFrame(
+          asyncStackRoot->getTopFrame(),
+          &addresses[numFrames],
+          maxAddresses - numFrames);
+      // There could be more related work at the next async stack root.
+      // Anything after the stack frame containing the last async stack root
+      // is potentially unrelated to the current async stack.
+      asyncStackRoot = asyncStackRoot->getNextRoot();
+      if (asyncStackRoot == nullptr) {
+        break;
+      }
+    }
+    addresses[numFrames++] = (uintptr_t)normalStackFrame->returnAddress;
+  }
+  return numFrames;
+}
+
 } // namespace symbolizer
 } // namespace folly

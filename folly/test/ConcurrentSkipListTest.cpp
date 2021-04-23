@@ -57,9 +57,7 @@ struct ParanoidArenaAlloc {
     arena_.get().deallocate(ptr, n);
   }
 
-  bool isEmpty() const {
-    return allocated_.empty();
-  }
+  bool isEmpty() const { return allocated_.empty(); }
 
   std::reference_wrapper<ParentAlloc> arena_;
   std::set<void*> allocated_;
@@ -118,8 +116,7 @@ static void sumAllValues(SkipListAccessor skipList, int64_t* sum) {
 }
 
 static void concurrentSkip(
-    const vector<ValueType>* values,
-    SkipListAccessor skipList) {
+    const vector<ValueType>* values, SkipListAccessor skipList) {
   int64_t sum = 0;
   SkipListAccessor::Skipper skipper(skipList);
   FOR_EACH (it, *values) {
@@ -272,8 +269,8 @@ TEST(ConcurrentSkipList, TestStringType) {
 }
 
 struct UniquePtrComp {
-  bool operator()(const std::unique_ptr<int>& x, const std::unique_ptr<int>& y)
-      const {
+  bool operator()(
+      const std::unique_ptr<int>& x, const std::unique_ptr<int>& y) const {
     if (!x) {
       return false;
     }
@@ -373,8 +370,8 @@ TEST(ConcurrentSkipList, ConcurrentRemove) {
   }
 }
 
-static void
-testConcurrentAccess(int numInsertions, int numDeletions, int maxValue) {
+static void testConcurrentAccess(
+    int numInsertions, int numDeletions, int maxValue) {
   auto skipList = SkipListType::create(kHeadHeight);
 
   vector<SetType> verifiers(FLAGS_num_threads);
@@ -424,9 +421,7 @@ struct NonTrivialValue {
   static std::atomic<int> InstanceCounter;
   static const int kBadPayLoad;
 
-  NonTrivialValue() : payload_(kBadPayLoad) {
-    ++InstanceCounter;
-  }
+  NonTrivialValue() : payload_(kBadPayLoad) { ++InstanceCounter; }
 
   explicit NonTrivialValue(int payload) : payload_(payload) {
     ++InstanceCounter;
@@ -441,9 +436,7 @@ struct NonTrivialValue {
     return *this;
   }
 
-  ~NonTrivialValue() {
-    --InstanceCounter;
-  }
+  ~NonTrivialValue() { --InstanceCounter; }
 
   bool operator<(const NonTrivialValue& rhs) const {
     EXPECT_NE(kBadPayLoad, payload_);

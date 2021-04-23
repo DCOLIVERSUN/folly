@@ -15,14 +15,14 @@
  */
 
 #include <folly/io/async/Request.h>
-#include <folly/experimental/SingleWriterFixedHashMap.h>
-#include <folly/synchronization/Hazptr.h>
-#include <folly/tracing/StaticTracepoint.h>
 
 #include <glog/logging.h>
 
 #include <folly/MapUtil.h>
 #include <folly/SingletonThreadLocal.h>
+#include <folly/experimental/SingleWriterFixedHashMap.h>
+#include <folly/synchronization/Hazptr.h>
+#include <folly/tracing/StaticTracepoint.h>
 
 namespace folly {
 
@@ -142,9 +142,7 @@ struct RequestContext::State::Combined : hazptr_obj_base<Combined> {
   Combined& operator=(const Combined&) = delete;
   Combined& operator=(Combined&&) = delete;
 
-  ~Combined() {
-    releaseDataRefs();
-  }
+  ~Combined() { releaseDataRefs(); }
 
   /* acquireDataRefs - Called at most once per Combined instance. */
   void acquireDataRefs() {
@@ -269,9 +267,10 @@ RequestContext::State::doSetContextDataHelper(
   bool found = it != cur->requestData_.end();
   if (found) {
     if (behaviour == DoSetBehaviour::SET_IF_ABSENT) {
-      return {false /* no changes made */,
-              false /* nothing unexpected */,
-              nullptr /* combined not replaced */};
+      return {
+          false /* no changes made */,
+          false /* nothing unexpected */,
+          nullptr /* combined not replaced */};
     }
     RequestData* oldData = it.value();
     // Always erase old data (and run onUnset callback, if any).
@@ -305,9 +304,10 @@ RequestContext::State::doSetContextDataHelper(
     // Now the new Combined is consistent. Safe to publish.
     setCombined(cur);
   }
-  return {true, /* changes were made */
-          unexpected,
-          replaced};
+  return {
+      true, /* changes were made */
+      unexpected,
+      replaced};
 }
 
 FOLLY_ALWAYS_INLINE
@@ -498,8 +498,7 @@ RequestContext::RequestContext(const RequestContext& ctx, Tag)
     : RequestContext(ctx) {}
 
 /* static */ std::shared_ptr<RequestContext> RequestContext::copyAsRoot(
-    const RequestContext& ctx,
-    intptr_t rootid) {
+    const RequestContext& ctx, intptr_t rootid) {
   return std::make_shared<RequestContext>(ctx, rootid, Tag{});
 }
 
@@ -509,22 +508,18 @@ RequestContext::RequestContext(const RequestContext& ctx, Tag)
 }
 
 void RequestContext::setContextData(
-    const RequestToken& token,
-    std::unique_ptr<RequestData> data) {
+    const RequestToken& token, std::unique_ptr<RequestData> data) {
   state_.doSetContextData(token, data, DoSetBehaviour::SET, false);
 }
 
 bool RequestContext::setContextDataIfAbsent(
-    const RequestToken& token,
-    std::unique_ptr<RequestData> data) {
+    const RequestToken& token, std::unique_ptr<RequestData> data) {
   return state_.doSetContextData(
       token, data, DoSetBehaviour::SET_IF_ABSENT, false);
 }
 
 void RequestContext::overwriteContextData(
-    const RequestToken& token,
-    std::unique_ptr<RequestData> data,
-    bool safe) {
+    const RequestToken& token, std::unique_ptr<RequestData> data, bool safe) {
   state_.doSetContextData(token, data, DoSetBehaviour::OVERWRITE, safe);
 }
 
@@ -629,9 +624,10 @@ RequestContext::getRootIdsFromAllThreads() {
   std::vector<RootIdInfo> result;
   auto accessor = SingletonT::accessAllThreads();
   for (auto it = accessor.begin(); it != accessor.end(); ++it) {
-    result.push_back({it->second.load(std::memory_order_relaxed),
-                      it.getThreadId(),
-                      it.getOSThreadId()});
+    result.push_back(
+        {it->second.load(std::memory_order_relaxed),
+         it.getThreadId(),
+         it.getOSThreadId()});
   }
   return result;
 }

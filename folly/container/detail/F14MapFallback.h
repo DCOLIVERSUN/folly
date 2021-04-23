@@ -43,12 +43,14 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
   using Super = std::unordered_map<K, M, H, E, A>;
 
   template <typename K2, typename T>
-  using EnableHeterogeneousFind =
-      std::enable_if_t<EligibleForHeterogeneousFind<K, H, E, K2>::value, T>;
+  using EnableHeterogeneousFind = std::enable_if_t<
+      ::folly::detail::EligibleForHeterogeneousFind<K, H, E, K2>::value,
+      T>;
 
   template <typename K2, typename T>
-  using EnableHeterogeneousInsert =
-      std::enable_if_t<EligibleForHeterogeneousInsert<K, H, E, K2>::value, T>;
+  using EnableHeterogeneousInsert = std::enable_if_t<
+      ::folly::detail::EligibleForHeterogeneousInsert<K, H, E, K2>::value,
+      T>;
 
   template <typename K2>
   using IsIter = Disjunction<
@@ -57,7 +59,7 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
 
   template <typename K2, typename T>
   using EnableHeterogeneousErase = std::enable_if_t<
-      EligibleForHeterogeneousFind<
+      ::folly::detail::EligibleForHeterogeneousFind<
           K,
           H,
           E,
@@ -169,8 +171,8 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
   }
 
   template <typename M2>
-  iterator
-  insert_or_assign(const_iterator /*hint*/, key_type const& key, M2&& obj) {
+  iterator insert_or_assign(
+      const_iterator /*hint*/, key_type const& key, M2&& obj) {
     return insert_or_assign(key, std::forward<M2>(obj)).first;
   }
 
@@ -181,8 +183,7 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
 
   template <typename K2, typename M2>
   EnableHeterogeneousInsert<K2, std::pair<iterator, bool>> insert_or_assign(
-      K2&& key,
-      M2&& obj) {
+      K2&& key, M2&& obj) {
     auto rv = try_emplace(std::forward<K2>(key), std::forward<M2>(obj));
     if (!rv.second) {
       rv.first->second = std::forward<M2>(obj);
@@ -192,7 +193,7 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
 
  private:
   template <typename Arg>
-  using UsableAsKey =
+  using UsableAsKey = ::folly::detail::
       EligibleForHeterogeneousFind<key_type, hasher, key_equal, Arg>;
 
  public:
@@ -242,8 +243,8 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
   }
 
   template <typename... Args>
-  iterator
-  try_emplace(const_iterator /*hint*/, key_type const& key, Args&&... args) {
+  iterator try_emplace(
+      const_iterator /*hint*/, key_type const& key, Args&&... args) {
     return emplace(
                std::piecewise_construct,
                std::forward_as_tuple(key),
@@ -252,8 +253,8 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
   }
 
   template <typename... Args>
-  iterator
-  try_emplace(const_iterator /*hint*/, key_type&& key, Args&&... args) {
+  iterator try_emplace(
+      const_iterator /*hint*/, key_type&& key, Args&&... args) {
     return emplace(
                std::piecewise_construct,
                std::forward_as_tuple(std::move(key)),
@@ -263,8 +264,7 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
 
   template <typename K2, typename... Args>
   EnableHeterogeneousInsert<K2, std::pair<iterator, bool>> try_emplace(
-      K2&& key,
-      Args&&... args) {
+      K2&& key, Args&&... args) {
     return emplace(
         std::piecewise_construct,
         std::forward_as_tuple(std::forward<K2>(key)),
@@ -335,13 +335,9 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
   }
 
  public:
-  mapped_type& at(key_type const& key) {
-    return Super::at(key);
-  }
+  mapped_type& at(key_type const& key) { return Super::at(key); }
 
-  mapped_type const& at(key_type const& key) const {
-    return Super::at(key);
-  }
+  mapped_type const& at(key_type const& key) const { return Super::at(key); }
 
   template <typename K2>
   EnableHeterogeneousFind<K2, mapped_type&> at(K2 const& key) {
@@ -360,18 +356,14 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
     return try_emplace(std::forward<K2>(key)).first->second;
   }
 
-  size_type count(key_type const& key) const {
-    return Super::count(key);
-  }
+  size_type count(key_type const& key) const { return Super::count(key); }
 
   template <typename K2>
   EnableHeterogeneousFind<K2, size_type> count(K2 const& key) const {
     return !findLocal(*this, key) ? 0 : 1;
   }
 
-  bool contains(key_type const& key) const {
-    return count(key) != 0;
-  }
+  bool contains(key_type const& key) const { return count(key) != 0; }
 
   template <typename K2>
   EnableHeterogeneousFind<K2, bool> contains(K2 const& key) const {
@@ -410,13 +402,9 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
   }
 
  public:
-  iterator find(key_type const& key) {
-    return Super::find(key);
-  }
+  iterator find(key_type const& key) { return Super::find(key); }
 
-  const_iterator find(key_type const& key) const {
-    return Super::find(key);
-  }
+  const_iterator find(key_type const& key) const { return Super::find(key); }
 
   template <typename K2>
   EnableHeterogeneousFind<K2, iterator> find(K2 const& key) {
@@ -509,8 +497,7 @@ class F14BasicMap : public std::unordered_map<K, M, H, E, A> {
 
   template <typename K2, typename BeforeDestroy>
   EnableHeterogeneousErase<K2, size_type> eraseInto(
-      K2 const& key,
-      BeforeDestroy&& beforeDestroy) {
+      K2 const& key, BeforeDestroy&& beforeDestroy) {
     return eraseIntoImpl(key, beforeDestroy);
   }
 #endif

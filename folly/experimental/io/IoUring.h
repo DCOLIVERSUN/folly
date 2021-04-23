@@ -44,8 +44,8 @@ class IoUringOp : public AsyncBaseOp {
    */
   void pread(int fd, void* buf, size_t size, off_t start) override;
   void preadv(int fd, const iovec* iov, int iovcnt, off_t start) override;
-  void pread(int fd, void* buf, size_t size, off_t start, int buf_index)
-      override;
+  void pread(
+      int fd, void* buf, size_t size, off_t start, int buf_index) override;
 
   /**
    * Initiate a write request.
@@ -57,19 +57,13 @@ class IoUringOp : public AsyncBaseOp {
 
   void reset(NotificationCallback cb = NotificationCallback()) override;
 
-  AsyncIOOp* getAsyncIOOp() override {
-    return nullptr;
-  }
+  AsyncIOOp* getAsyncIOOp() override { return nullptr; }
 
-  IoUringOp* getIoUringOp() override {
-    return this;
-  }
+  IoUringOp* getIoUringOp() override { return this; }
 
   void toStream(std::ostream& os) const override;
 
-  const struct io_uring_sqe& getSqe() const {
-    return sqe_;
-  }
+  const struct io_uring_sqe& getSqe() const { return sqe_; }
 
  private:
   struct io_uring_sqe sqe_;
@@ -91,9 +85,7 @@ class IoUring : public AsyncBase {
    * The default IORING_MAX_ENTRIES value is usually 32K.
    */
   explicit IoUring(
-      size_t capacity,
-      PollMode pollMode = NOT_POLLABLE,
-      size_t maxSubmit = 1);
+      size_t capacity, PollMode pollMode = NOT_POLLABLE, size_t maxSubmit = 1);
   IoUring(const IoUring&) = delete;
   IoUring& operator=(const IoUring&) = delete;
   ~IoUring() override;
@@ -104,8 +96,9 @@ class IoUring : public AsyncBase {
 
   int unregister_buffers();
 
- private:
   void initializeContext() override;
+
+ private:
   int submitOne(AsyncBase::Op* op) override;
   int submitRange(Range<AsyncBase::Op**> ops) override;
 

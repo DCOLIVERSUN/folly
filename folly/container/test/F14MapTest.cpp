@@ -76,7 +76,8 @@ TEST(F14Map, customSwap) {
 }
 
 template <
-    template <typename, typename, typename, typename, typename> class TMap,
+    template <typename, typename, typename, typename, typename>
+    class TMap,
     typename K,
     typename V>
 void runAllocatedMemorySizeTest() {
@@ -1078,9 +1079,7 @@ TEST(Tracked, baseline) {
 // and a pair const& or pair&& and cause it to be inserted
 template <typename M, typename F>
 void runInsertCases(
-    std::string const& name,
-    F const& insertFunc,
-    uint64_t expectedDist = 0) {
+    std::string const& name, F const& insertFunc, uint64_t expectedDist = 0) {
   static_assert(std::is_same<typename M::key_type, Tracked<0>>::value, "");
   static_assert(std::is_same<typename M::mapped_type, Tracked<1>>::value, "");
   {
@@ -1891,18 +1890,12 @@ namespace {
 struct A {
   int value;
 
-  bool operator==(A const& rhs) const {
-    return value == rhs.value;
-  }
-  bool operator!=(A const& rhs) const {
-    return !(*this == rhs);
-  }
+  bool operator==(A const& rhs) const { return value == rhs.value; }
+  bool operator!=(A const& rhs) const { return !(*this == rhs); }
 };
 
 struct AHasher {
-  std::size_t operator()(A const& v) const {
-    return v.value;
-  }
+  std::size_t operator()(A const& v) const { return v.value; }
 };
 
 template <typename T>
@@ -1913,9 +1906,7 @@ struct B {
 
   /* implicit */ B(A const& v) : value(v.value) {}
 
-  /* implicit */ operator A() const {
-    return A{value};
-  }
+  /* implicit */ operator A() const { return A{value}; }
 };
 
 struct C {
@@ -2100,7 +2091,7 @@ template <template <class...> class TMap>
 void testEraseIf() {
   TMap<int, int> m{{1, 1}, {2, 2}, {3, 3}, {4, 4}};
   const auto isEvenKey = [](const auto& p) { return p.first % 2 == 0; };
-  erase_if(m, isEvenKey);
+  EXPECT_EQ(2u, erase_if(m, isEvenKey));
   ASSERT_EQ(2u, m.size());
   EXPECT_TRUE(m.contains(1));
   EXPECT_TRUE(m.contains(3));
@@ -2119,9 +2110,7 @@ struct DivideBy {
   // this is a lie for testing purposes
   using folly_is_avalanching = std::true_type;
 
-  std::size_t operator()(std::size_t v) const {
-    return v / N;
-  }
+  std::size_t operator()(std::size_t v) const { return v / N; }
 };
 } // namespace
 

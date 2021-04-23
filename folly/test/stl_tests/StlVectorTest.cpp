@@ -663,12 +663,8 @@ struct Alloc : AllocTracker, Ticker {
   Alloc(Alloc&& o) noexcept : a(move(o.a)), id(o.id) {}
   Alloc& operator=(const Alloc&) = default;
   Alloc& operator=(Alloc&&) noexcept = default;
-  bool operator==(const Alloc& o) const {
-    return a == o.a && id == o.id;
-  }
-  bool operator!=(const Alloc& o) const {
-    return !(*this == o);
-  }
+  bool operator==(const Alloc& o) const { return a == o.a && id == o.id; }
+  bool operator!=(const Alloc& o) const { return !(*this == o); }
 
   //---------
   // tracking
@@ -1107,16 +1103,12 @@ struct PrettyType<Data<f, pad>> {
 
 template <typename T>
 struct PrettyType<std::allocator<T>> {
-  string operator()() {
-    return "std::allocator<" + PrettyType<T>()() + ">";
-  }
+  string operator()() { return "std::allocator<" + PrettyType<T>()() + ">"; }
 };
 
 template <typename T>
 struct PrettyType<Alloc<T>> {
-  string operator()() {
-    return "Alloc<" + PrettyType<T>()() + ">";
-  }
+  string operator()() { return "Alloc<" + PrettyType<T>()() + ">"; }
 };
 
 //-----------------------------------------------------------------------------
@@ -1248,9 +1240,7 @@ void populate(Vector& v, const pair<int, int>& ss) {
 
 template <typename A>
 struct allocGen {
-  static A get() {
-    return A();
-  }
+  static A get() { return A(); }
 };
 template <typename T>
 struct allocGen<Alloc<T>> {
@@ -1558,9 +1548,7 @@ class DataState {
       data_ = nullptr;
     }
   }
-  ~DataState() {
-    delete[] data_;
-  }
+  ~DataState() { delete[] data_; }
 
   bool operator==(const DataState& o) const {
     if (size_ != o.size_) {
@@ -1582,9 +1570,7 @@ class DataState {
     return data_[i];
   }
 
-  size_type size() {
-    return size_;
-  }
+  size_type size() { return size_; }
 };
 
 // downgrade iterators
@@ -2083,10 +2069,7 @@ STL_TEST("23.2.1 Table 99.5", copyWithAllocator, is_copy_constructible, a, m) {
 }
 
 STL_TEST(
-    "23.2.1 Table 99.6",
-    moveConstructionWithAllocator,
-    is_destructible,
-    a) {
+    "23.2.1 Table 99.6", moveConstructionWithAllocator, is_destructible, a) {
   (void)a;
   // there is nothing new to test here
 }
@@ -2139,12 +2122,7 @@ STL_TEST("23.2.1-7", nCopyAllocConstruction, is_copy_constructible, n, t, m) {
 }
 
 STL_TEST(
-    "23.2.1-7",
-    forwardIteratorAllocConstruction,
-    is_destructible,
-    i,
-    j,
-    m) {
+    "23.2.1-7", forwardIteratorAllocConstruction, is_destructible, i, j, m) {
   auto fi = makeForwardIterator(i);
   auto fj = makeForwardIterator(j);
   const auto& cfi = fi;
@@ -2241,11 +2219,7 @@ STL_TEST("23.2.3 Table 100.1", nCopyConstruction, is_copy_constructible, n, t) {
 }
 
 STL_TEST(
-    "23.2.3 Table 100.2",
-    forwardIteratorConstruction,
-    is_destructible,
-    i,
-    j) {
+    "23.2.3 Table 100.2", forwardIteratorConstruction, is_destructible, i, j) {
   // All data is emplace-constructible from int, so we restrict to
   // is_destructible
 
@@ -2339,11 +2313,7 @@ STL_TEST("23.2.3 Table 100.4", ilAssignment, is_arithmetic, a) {
 
 template <class Vector>
 void insertNTCheck(
-    const Vector& a,
-    DataState<Vector>& dsa,
-    int idx,
-    int n,
-    int val) {
+    const Vector& a, DataState<Vector>& dsa, int idx, int n, int val) {
   ASSERT_EQ(dsa.size() + n, a.size());
   int i = 0;
   for (; i < idx; ++i) {
@@ -2466,11 +2436,7 @@ STL_TEST(
 
 template <class Vector>
 void insertItCheck(
-    const Vector& a,
-    DataState<Vector>& dsa,
-    int idx,
-    int* b,
-    int* e) {
+    const Vector& a, DataState<Vector>& dsa, int idx, int* b, int* e) {
   ASSERT_EQ(dsa.size() + (e - b), a.size());
   int i = 0;
   for (; i < idx; ++i) {
@@ -2618,12 +2584,7 @@ STL_TEST("23.2.3 Table 100.11", iteratorErase, is_move_assignable, a, p) {
 }
 
 STL_TEST(
-    "23.2.3 Table 100.12",
-    iteratorEraseRange,
-    is_move_assignable,
-    a,
-    p,
-    q) {
+    "23.2.3 Table 100.12", iteratorEraseRange, is_move_assignable, a, p, q) {
   if (p == a.end()) {
     return;
   }

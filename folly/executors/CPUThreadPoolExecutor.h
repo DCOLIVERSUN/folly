@@ -17,6 +17,7 @@
 #pragma once
 
 #include <limits.h>
+
 #include <array>
 
 #include <folly/concurrency/QueueObserver.h>
@@ -83,8 +84,7 @@ class CPUThreadPoolExecutor : public ThreadPoolExecutor {
   explicit CPUThreadPoolExecutor(size_t numThreads);
 
   CPUThreadPoolExecutor(
-      size_t numThreads,
-      std::shared_ptr<ThreadFactory> threadFactory);
+      size_t numThreads, std::shared_ptr<ThreadFactory> threadFactory);
 
   CPUThreadPoolExecutor(
       std::pair<size_t, size_t> numThreads,
@@ -138,13 +138,9 @@ class CPUThreadPoolExecutor : public ThreadPoolExecutor {
           poison(true),
           priority_(0) {}
 
-    size_t queuePriority() const {
-      return priority_;
-    }
+    size_t queuePriority() const { return priority_; }
 
-    intptr_t& queueObserverPayload() {
-      return queueObserverPayload_;
-    }
+    intptr_t& queueObserverPayload() { return queueObserverPayload_; }
 
     bool poison;
 
@@ -165,6 +161,13 @@ class CPUThreadPoolExecutor : public ThreadPoolExecutor {
 
   bool tryDecrToStop();
   bool taskShouldStop(folly::Optional<CPUTask>&);
+
+  template <bool withPriority>
+  void addImpl(
+      Func func,
+      int8_t priority,
+      std::chrono::milliseconds expiration,
+      Func expireCallback);
 
   std::unique_ptr<folly::QueueObserverFactory> createQueueObserverFactory();
   QueueObserver* FOLLY_NULLABLE getQueueObserver(int8_t pri);

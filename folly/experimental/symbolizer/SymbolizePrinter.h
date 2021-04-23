@@ -16,10 +16,11 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <folly/FBString.h>
 #include <folly/Range.h>
 #include <folly/experimental/symbolizer/SymbolizedFrame.h>
-#include <cstdint>
 
 namespace folly {
 class IOBuf;
@@ -67,9 +68,7 @@ class SymbolizePrinter {
   /**
    * Print a string, no endling newline.
    */
-  void print(StringPiece sp) {
-    doPrint(sp);
-  }
+  void print(StringPiece sp) { doPrint(sp); }
 
   /**
    * Print multiple frames on separate lines, skipping the first
@@ -189,15 +188,9 @@ class StringSymbolizePrinter : public SymbolizePrinter {
   explicit StringSymbolizePrinter(int options = 0)
       : SymbolizePrinter(options) {}
 
-  std::string str() const {
-    return buf_.toStdString();
-  }
-  const fbstring& fbstr() const {
-    return buf_;
-  }
-  fbstring moveFbString() {
-    return std::move(buf_);
-  }
+  std::string str() const { return buf_.toStdString(); }
+  const fbstring& fbstr() const { return buf_; }
+  fbstring moveFbString() { return std::move(buf_); }
 
  private:
   void doPrint(StringPiece sp) override;

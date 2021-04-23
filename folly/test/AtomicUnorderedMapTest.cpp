@@ -47,19 +47,15 @@ struct non_atomic {
   }
 
   /* implicit */
-  operator T() const {
-    return load();
-  }
+  operator T() const { return load(); }
 
   void store(
-      T desired,
-      std::memory_order /* order */ = std::memory_order_seq_cst) {
+      T desired, std::memory_order /* order */ = std::memory_order_seq_cst) {
     value = desired;
   }
 
   T exchange(
-      T desired,
-      std::memory_order /* order */ = std::memory_order_seq_cst) {
+      T desired, std::memory_order /* order */ = std::memory_order_seq_cst) {
     T old = load();
     store(desired);
     return old;
@@ -93,9 +89,7 @@ struct non_atomic {
     return false;
   }
 
-  bool is_lock_free() const {
-    return true;
-  }
+  bool is_lock_free() const { return true; }
 };
 
 template <
@@ -123,7 +117,7 @@ struct AtomicUnorderedInsertMapTest : public ::testing::Test {};
 // uint16_t doesn't make sense for most platforms, but we might as well
 // test it
 using IndexTypesToTest = ::testing::Types<uint16_t, uint32_t, uint64_t>;
-TYPED_TEST_CASE(AtomicUnorderedInsertMapTest, IndexTypesToTest);
+TYPED_TEST_SUITE(AtomicUnorderedInsertMapTest, IndexTypesToTest);
 
 TYPED_TEST(AtomicUnorderedInsertMapTest, basic) {
   UIM<std::string,
@@ -238,9 +232,7 @@ BENCHMARK(lookup_int_int_hit, iters) {
     EXPECT_EQ(iter->second, k + 1);
   }
 
-  BENCHMARK_SUSPEND {
-    ptr.reset(nullptr);
-  }
+  BENCHMARK_SUSPEND { ptr.reset(nullptr); }
 }
 
 struct PairHash {
@@ -304,9 +296,7 @@ void contendedRW(
     thr.join();
   }
 
-  BENCHMARK_SUSPEND {
-    ptr.reset(nullptr);
-  }
+  BENCHMARK_SUSPEND { ptr.reset(nullptr); }
 }
 
 // clang-format off

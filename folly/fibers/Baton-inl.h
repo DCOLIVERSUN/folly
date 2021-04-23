@@ -28,9 +28,7 @@ class Baton::FiberWaiter : public Baton::Waiter {
     fiber_ = &fiber;
   }
 
-  void post() override {
-    fiber_->resume();
-  }
+  void post() override { fiber_->resume(); }
 
  private:
   Fiber* fiber_{nullptr};
@@ -112,8 +110,7 @@ bool Baton::timedWaitThread(
 
 template <typename Rep, typename Period, typename F>
 bool Baton::try_wait_for(
-    const std::chrono::duration<Rep, Period>& timeout,
-    F&& mainContextFunc) {
+    const std::chrono::duration<Rep, Period>& timeout, F&& mainContextFunc) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   return try_wait_until(deadline, static_cast<F&&>(mainContextFunc));
 }

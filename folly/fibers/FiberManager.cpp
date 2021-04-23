@@ -28,13 +28,16 @@
 
 #include <folly/ConstexprMath.h>
 #include <folly/SingletonThreadLocal.h>
+#include <folly/portability/Config.h>
 #include <folly/portability/SysSyscall.h>
 #include <folly/portability/Unistd.h>
 #include <folly/synchronization/SanitizeThread.h>
 
 #ifdef FOLLY_SANITIZE_ADDRESS
 
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
 
 static void __sanitizer_start_switch_fiber_weak(
     void** fake_stack_save,
@@ -47,14 +50,13 @@ static void __sanitizer_finish_switch_fiber_weak(
     size_t* old_stack_extent)
     __attribute__((__weakref__("__sanitizer_finish_switch_fiber")));
 static void __asan_unpoison_memory_region_weak(
-    void const /* nolint */ volatile* addr,
-    size_t size) __attribute__((__weakref__("__asan_unpoison_memory_region")));
+    void const /* nolint */ volatile* addr, size_t size)
+    __attribute__((__weakref__("__asan_unpoison_memory_region")));
 
 typedef void (*AsanStartSwitchStackFuncPtr)(void**, void const*, size_t);
 typedef void (*AsanFinishSwitchStackFuncPtr)(void*, void const**, size_t*);
 typedef void (*AsanUnpoisonMemoryRegionFuncPtr)(
-    void const /* nolint */ volatile*,
-    size_t);
+    void const /* nolint */ volatile*, size_t);
 
 namespace folly {
 namespace fibers {
@@ -90,8 +92,7 @@ auto FiberManager::FrozenOptions::create(const Options& options) -> ssize_t {
 }
 
 FiberManager::FiberManager(
-    std::unique_ptr<LoopController> loopController,
-    Options options)
+    std::unique_ptr<LoopController> loopController, Options options)
     : FiberManager(LocalType<void>(), std::move(loopController), options) {}
 
 FiberManager::~FiberManager() {
@@ -101,7 +102,7 @@ FiberManager::~FiberManager() {
     fibersPool_.pop_front_and_dispose([](Fiber* fiber) { delete fiber; });
   }
   assert(readyFibers_.empty());
-  assert(fibersActive_ == 0);
+  assert(!hasTasks());
 }
 
 LoopController& FiberManager::loopController() {
@@ -115,6 +116,10 @@ const LoopController& FiberManager::loopController() const {
 bool FiberManager::hasTasks() const {
   return fibersActive_ > 0 || !remoteReadyQueue_.empty() ||
       !remoteTaskQueue_.empty() || remoteCount_ > 0;
+}
+
+bool FiberManager::isRemoteScheduled() const {
+  return remoteCount_ > 0;
 }
 
 Fiber* FiberManager::getFiber() {
@@ -217,9 +222,7 @@ void FiberManager::FibersPoolResizer::run() {
 #ifdef FOLLY_SANITIZE_ADDRESS
 
 void FiberManager::registerStartSwitchStackWithAsan(
-    void** saveFakeStack,
-    const void* stackBottom,
-    size_t stackSize) {
+    void** saveFakeStack, const void* stackBottom, size_t stackSize) {
   // Check if we can find a fiber enter function and call it if we find one
   static AsanStartSwitchStackFuncPtr fn = getStartSwitchStackFunc();
   if (fn == nullptr) {
@@ -230,9 +233,7 @@ void FiberManager::registerStartSwitchStackWithAsan(
 }
 
 void FiberManager::registerFinishSwitchStackWithAsan(
-    void* saveFakeStack,
-    const void** saveStackBottom,
-    size_t* saveStackSize) {
+    void* saveFakeStack, const void** saveStackBottom, size_t* saveStackSize) {
   // Check if we can find a fiber exit function and call it if we find one
   static AsanFinishSwitchStackFuncPtr fn = getFinishSwitchStackFunc();
   if (fn == nullptr) {
@@ -279,11 +280,13 @@ static AsanStartSwitchStackFuncPtr getStartSwitchStackFunc() {
   }
 
   // Check whether we can find a dynamically linked enter function
+#ifndef _WIN32
   if (nullptr !=
       (fn = (AsanStartSwitchStackFuncPtr)dlsym(
            RTLD_DEFAULT, "__sanitizer_start_switch_fiber"))) {
     return fn;
   }
+#endif
 
   // Couldn't find the function at all
   return nullptr;
@@ -298,11 +301,13 @@ static AsanFinishSwitchStackFuncPtr getFinishSwitchStackFunc() {
   }
 
   // Check whether we can find a dynamically linked exit function
+#ifndef _WIN32
   if (nullptr !=
       (fn = (AsanFinishSwitchStackFuncPtr)dlsym(
            RTLD_DEFAULT, "__sanitizer_finish_switch_fiber"))) {
     return fn;
   }
+#endif
 
   // Couldn't find the function at all
   return nullptr;
@@ -317,11 +322,13 @@ static AsanUnpoisonMemoryRegionFuncPtr getUnpoisonMemoryRegionFunc() {
   }
 
   // Check whether we can find a dynamically linked unpoison function
+#ifndef _WIN32
   if (nullptr !=
       (fn = (AsanUnpoisonMemoryRegionFuncPtr)dlsym(
            RTLD_DEFAULT, "__asan_unpoison_memory_region"))) {
     return fn;
   }
+#endif
 
   // Couldn't find the function at all
   return nullptr;
@@ -329,12 +336,10 @@ static AsanUnpoisonMemoryRegionFuncPtr getUnpoisonMemoryRegionFunc() {
 
 #endif // FOLLY_SANITIZE_ADDRESS
 
-#ifndef _WIN32
-namespace {
+// TVOS and WatchOS platforms have SIGSTKSZ but not sigaltstack
+#if defined(SIGSTKSZ) && !FOLLY_APPLE_TVOS && !FOLLY_APPLE_WATCHOS
 
-// SIGSTKSZ (8 kB on our architectures) isn't always enough for
-// folly::symbolizer, so allocate 32 kB.
-constexpr size_t kAltStackSize = folly::constexpr_max(SIGSTKSZ, 32 * 1024);
+namespace {
 
 bool hasAlternateStack() {
   stack_t ss;
@@ -363,9 +368,13 @@ class ScopedAlternateSignalStack {
       return;
     }
 
-    stack_ = std::make_unique<AltStackBuffer>();
+    // SIGSTKSZ (8 kB on our architectures) isn't always enough for
+    // folly::symbolizer, so allocate 32 kB.
+    size_t kAltStackSize = std::max(size_t(SIGSTKSZ), size_t(32 * 1024));
 
-    setAlternateStack(stack_->data(), stack_->size());
+    stack_ = std::unique_ptr<char[]>(new char[kAltStackSize]);
+
+    setAlternateStack(stack_.get(), kAltStackSize);
   }
 
   ScopedAlternateSignalStack(ScopedAlternateSignalStack&&) = default;
@@ -378,16 +387,23 @@ class ScopedAlternateSignalStack {
   }
 
  private:
-  using AltStackBuffer = std::array<char, kAltStackSize>;
-  std::unique_ptr<AltStackBuffer> stack_;
+  std::unique_ptr<char[]> stack_;
 };
 } // namespace
 
-void FiberManager::registerAlternateSignalStack() {
+void FiberManager::maybeRegisterAlternateSignalStack() {
   SingletonThreadLocal<ScopedAlternateSignalStack>::get();
 
   alternateSignalStackRegistered_ = true;
 }
+
+#else
+
+void FiberManager::maybeRegisterAlternateSignalStack() {
+  // no-op
+}
+
 #endif
+
 } // namespace fibers
 } // namespace folly

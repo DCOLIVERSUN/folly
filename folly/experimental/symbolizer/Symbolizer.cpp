@@ -21,7 +21,6 @@
 #include <cstdlib>
 #include <iostream>
 
-#include <folly/Conv.h>
 #include <folly/FileUtil.h>
 #include <folly/Memory.h>
 #include <folly/ScopeGuard.h>
@@ -30,33 +29,62 @@
 #include <folly/experimental/symbolizer/Elf.h>
 #include <folly/experimental/symbolizer/ElfCache.h>
 #include <folly/experimental/symbolizer/LineReader.h>
+#include <folly/experimental/symbolizer/detail/Debug.h>
 #include <folly/lang/SafeAssert.h>
+#include <folly/lang/ToAscii.h>
 #include <folly/portability/Config.h>
 #include <folly/portability/SysMman.h>
 #include <folly/portability/Unistd.h>
+#include <folly/tracing/AsyncStack.h>
 
-#if FOLLY_HAVE_ELF
-#include <link.h>
+#if FOLLY_HAVE_SWAPCONTEXT
+// folly/portability/Config.h (thus features.h) must be included
+// first, and _XOPEN_SOURCE must be defined to unable the context
+// functions on macOS.
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE
+#endif
 #include <ucontext.h>
 #endif
 
-#if defined(__linux__) && FOLLY_USE_SYMBOLIZER
-static struct r_debug* get_r_debug() {
-  return &_r_debug;
-}
-#elif FOLLY_USE_SYMBOLIZER
-extern struct r_debug _r_debug;
-FOLLY_MAYBE_UNUSED static struct r_debug* get_r_debug() {
-  return &_r_debug;
-}
-#else
-FOLLY_MAYBE_UNUSED static struct r_debug* get_r_debug() {
-  return nullptr;
-}
+#if FOLLY_HAVE_BACKTRACE
+#include <execinfo.h>
 #endif
 
 namespace folly {
 namespace symbolizer {
+
+namespace {
+template <typename PrintFunc>
+void printAsyncStackInfo(PrintFunc print) {
+  char buf[to_ascii_size_max<16, uint64_t>];
+  auto printHex = [&print, &buf](uint64_t val) {
+    print("0x");
+    print(StringPiece(buf, to_ascii_lower<16>(buf, val)));
+  };
+
+  // Print async stack trace, if available
+  const auto* asyncStackRoot = tryGetCurrentAsyncStackRoot();
+  const auto* asyncStackFrame =
+      asyncStackRoot ? asyncStackRoot->getTopFrame() : nullptr;
+
+  print("\n");
+  print("*** Check failure async stack trace: ***\n");
+  print("*** First async stack root: ");
+  printHex((uint64_t)asyncStackRoot);
+  print(", normal stack frame pointer holding async stack root: ");
+  printHex(
+      asyncStackRoot ? (uint64_t)asyncStackRoot->getStackFramePointer() : 0);
+  print(", return address: ");
+  printHex(asyncStackRoot ? (uint64_t)asyncStackRoot->getReturnAddress() : 0);
+  print(" ***\n");
+  print("*** First async stack frame pointer: ");
+  printHex((uint64_t)asyncStackFrame);
+  print(", return address: ");
+  printHex(asyncStackFrame ? (uint64_t)asyncStackFrame->getReturnAddress() : 0);
+  print(", async stack trace: ***\n");
+}
+} // namespace
 
 #if FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
 
@@ -92,13 +120,11 @@ void setSymbolizedFrame(
 } // namespace
 
 bool Symbolizer::isAvailable() {
-  return get_r_debug();
+  return detail::get_r_debug();
 }
 
 Symbolizer::Symbolizer(
-    ElfCacheBase* cache,
-    LocationInfoMode mode,
-    size_t symbolCacheSize)
+    ElfCacheBase* cache, LocationInfoMode mode, size_t symbolCacheSize)
     : cache_(cache ? cache : defaultElfCache()), mode_(mode) {
   if (symbolCacheSize > 0) {
     symbolCache_.emplace(folly::in_place, symbolCacheSize);
@@ -113,7 +139,7 @@ size_t Symbolizer::symbolize(
   FOLLY_SAFE_CHECK(addrCount <= frameCount, "Not enough frames.");
   size_t remaining = addrCount;
 
-  auto const dbg = get_r_debug();
+  auto const dbg = detail::get_r_debug();
   if (dbg == nullptr) {
     return 0;
   }
@@ -239,6 +265,55 @@ size_t Symbolizer::symbolize(
   return addrCount;
 }
 
+FastStackTracePrinter::FastStackTracePrinter(
+    std::unique_ptr<SymbolizePrinter> printer, size_t symbolCacheSize)
+    : printer_(std::move(printer)),
+      symbolizer_(defaultElfCache(), LocationInfoMode::FULL, symbolCacheSize) {}
+
+FastStackTracePrinter::~FastStackTracePrinter() = default;
+
+void FastStackTracePrinter::printStackTrace(bool symbolize) {
+  SCOPE_EXIT { printer_->flush(); };
+
+  FrameArray<kMaxStackTraceDepth> addresses;
+  auto printStack = [this, &addresses, &symbolize] {
+    if (symbolize) {
+      symbolizer_.symbolize(addresses);
+
+      // Skip the top 2 frames:
+      // getStackTraceSafe
+      // FastStackTracePrinter::printStackTrace (here)
+      printer_->println(addresses, 2);
+    } else {
+      printer_->print("(safe mode, symbolizer not available)\n");
+      AddressFormatter formatter;
+      for (size_t i = 0; i < addresses.frameCount; ++i) {
+        printer_->print(formatter.format(addresses.addresses[i]));
+        printer_->print("\n");
+      }
+    }
+  };
+
+  if (!getStackTraceSafe(addresses)) {
+    printer_->print("(error retrieving stack trace)\n");
+  } else {
+    printStack();
+  }
+
+  addresses.frameCount = 0;
+  if (!getAsyncStackTraceSafe(addresses) || addresses.frameCount == 0) {
+    return;
+  }
+  printAsyncStackInfo([this](auto sp) { printer_->print(sp); });
+  printStack();
+}
+
+void FastStackTracePrinter::flush() {
+  printer_->flush();
+}
+
+#endif // FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
+
 SafeStackTracePrinter::SafeStackTracePrinter(int fd)
     : fd_(fd),
       printer_(
@@ -253,6 +328,7 @@ void SafeStackTracePrinter::flush() {
 }
 
 void SafeStackTracePrinter::printSymbolizedStackTrace() {
+#if FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
   // This function might run on an alternative stack allocated by
   // UnsafeSelfAllocateStackTracePrinter. Capturing a stack from
   // here is probably wrong.
@@ -269,12 +345,34 @@ void SafeStackTracePrinter::printSymbolizedStackTrace() {
   //
   // Leaving signalHandler on the stack for clarity, I think.
   printer_.println(*addresses_, 2);
+#else
+  printUnsymbolizedStackTrace();
+#endif
+}
+
+void SafeStackTracePrinter::printUnsymbolizedStackTrace() {
+  print("(safe mode, symbolizer not available)\n");
+#if FOLLY_HAVE_BACKTRACE
+  // `backtrace_symbols_fd` from execinfo.h is not explicitly
+  // documented on either macOS or Linux to be async-signal-safe, but
+  // the implementation in
+  // https://opensource.apple.com/source/Libc/Libc-1353.60.8/ appears
+  // safe.
+  ::backtrace_symbols_fd(
+      reinterpret_cast<void**>(addresses_->addresses),
+      addresses_->frameCount,
+      fd_);
+#else
+  AddressFormatter formatter;
+  for (size_t i = 0; i < addresses_->frameCount; ++i) {
+    print(formatter.format(addresses_->addresses[i]));
+    print("\n");
+  }
+#endif
 }
 
 void SafeStackTracePrinter::printStackTrace(bool symbolize) {
-  SCOPE_EXIT {
-    flush();
-  };
+  SCOPE_EXIT { flush(); };
 
   // Skip the getStackTrace frame
   if (!getStackTraceSafe(*addresses_)) {
@@ -282,52 +380,48 @@ void SafeStackTracePrinter::printStackTrace(bool symbolize) {
   } else if (symbolize) {
     printSymbolizedStackTrace();
   } else {
-    print("(safe mode, symbolizer not available)\n");
-    AddressFormatter formatter;
-    for (size_t i = 0; i < addresses_->frameCount; ++i) {
-      print(formatter.format(addresses_->addresses[i]));
-      print("\n");
-    }
+    printUnsymbolizedStackTrace();
+  }
+
+  addresses_->frameCount = 0;
+  if (!getAsyncStackTraceSafe(*addresses_) || addresses_->frameCount == 0) {
+    return;
+  }
+  printAsyncStackInfo([this](auto sp) { print(sp); });
+  if (symbolize) {
+    printSymbolizedStackTrace();
+  } else {
+    printUnsymbolizedStackTrace();
   }
 }
 
-FastStackTracePrinter::FastStackTracePrinter(
-    std::unique_ptr<SymbolizePrinter> printer,
-    size_t symbolCacheSize)
-    : printer_(std::move(printer)),
-      symbolizer_(defaultElfCache(), LocationInfoMode::FULL, symbolCacheSize) {}
+std::string getAsyncStackTraceStr() {
+#if FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
 
-FastStackTracePrinter::~FastStackTracePrinter() = default;
-
-void FastStackTracePrinter::printStackTrace(bool symbolize) {
-  SCOPE_EXIT {
-    printer_->flush();
-  };
-
+  // Get and symbolize stack trace
+  constexpr size_t kMaxStackTraceDepth = 100;
   FrameArray<kMaxStackTraceDepth> addresses;
 
-  if (!getStackTraceSafe(addresses)) {
-    printer_->print("(error retrieving stack trace)\n");
-  } else if (symbolize) {
-    symbolizer_.symbolize(addresses);
-
-    // Skip the top 2 frames:
-    // getStackTraceSafe
-    // FastStackTracePrinter::printStackTrace (here)
-    printer_->println(addresses, 2);
+  if (!getAsyncStackTraceSafe(addresses)) {
+    return "";
   } else {
-    printer_->print("(safe mode, symbolizer not available)\n");
-    AddressFormatter formatter;
-    for (size_t i = 0; i < addresses.frameCount; ++i) {
-      printer_->print(formatter.format(addresses.addresses[i]));
-      printer_->print("\n");
-    }
+    ElfCache elfCache;
+    Symbolizer symbolizer(&elfCache);
+    symbolizer.symbolize(addresses);
+
+    StringSymbolizePrinter printer;
+    printer.println(addresses);
+    return printer.str();
   }
+
+#else
+
+  return "";
+
+#endif // FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
 }
 
-void FastStackTracePrinter::flush() {
-  printer_->flush();
-}
+#if FOLLY_HAVE_SWAPCONTEXT
 
 // Stack utilities used by UnsafeSelfAllocateStackTracePrinter
 namespace {
@@ -383,6 +477,13 @@ MmapPtr allocateStack(ucontext_t* oucp, size_t pageSize) {
 
 } // namespace
 
+FOLLY_PUSH_WARNING
+
+// On Apple platforms, some ucontext methods that are used here are deprecated.
+#ifdef __APPLE__
+FOLLY_GNU_DISABLE_WARNING("-Wdeprecated-declarations")
+#endif
+
 void UnsafeSelfAllocateStackTracePrinter::printSymbolizedStackTrace() {
   if (pageSizeUnchecked_ <= 0) {
     return;
@@ -419,7 +520,9 @@ void UnsafeSelfAllocateStackTracePrinter::printSymbolizedStackTrace() {
   }
 }
 
-#endif // FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
+FOLLY_POP_WARNING
+
+#endif // FOLLY_HAVE_SWAPCONTEXT
 
 } // namespace symbolizer
 } // namespace folly

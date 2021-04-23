@@ -63,8 +63,7 @@ class upgrade_lock {
       : mutex_{&mutex}, owns_{true} {}
   template <typename Rep, typename Period>
   upgrade_lock(
-      mutex_type& mutex,
-      std::chrono::duration<Rep, Period> const& timeout)
+      mutex_type& mutex, std::chrono::duration<Rep, Period> const& timeout)
       : mutex_{&mutex}, owns_{mutex.try_lock_upgrade_for(timeout)} {}
   template <typename Clock, typename Duration>
   upgrade_lock(
@@ -122,26 +121,18 @@ class upgrade_lock {
     std::swap(owns_, that.owns_);
   }
 
-  friend void swap(upgrade_lock& a, upgrade_lock& b) noexcept {
-    a.swap(b);
-  }
+  friend void swap(upgrade_lock& a, upgrade_lock& b) noexcept { a.swap(b); }
 
   mutex_type* release() noexcept {
     owns_ = false;
     return std::exchange(mutex_, nullptr);
   }
 
-  mutex_type* mutex() const noexcept {
-    return mutex_;
-  }
+  mutex_type* mutex() const noexcept { return mutex_; }
 
-  bool owns_lock() const noexcept {
-    return owns_;
-  }
+  bool owns_lock() const noexcept { return owns_; }
 
-  explicit operator bool() const noexcept {
-    return owns_;
-  }
+  explicit operator bool() const noexcept { return owns_; }
 
  private:
   template <bool Owns>
@@ -165,8 +156,10 @@ class upgrade_lock {
 namespace detail {
 
 template <
-    template <typename> class To,
-    template <typename> class From,
+    template <typename>
+    class To,
+    template <typename>
+    class From,
     typename Mutex,
     typename Transition>
 To<Mutex> try_transition_lock_(From<Mutex>& lock, Transition transition) {
@@ -184,8 +177,10 @@ To<Mutex> try_transition_lock_(From<Mutex>& lock, Transition transition) {
 }
 
 template <
-    template <typename> class To,
-    template <typename> class From,
+    template <typename>
+    class To,
+    template <typename>
+    class From,
     typename Mutex,
     typename Transition>
 To<Mutex> transition_lock_(From<Mutex>& lock, Transition transition) {

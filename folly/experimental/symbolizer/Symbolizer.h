@@ -87,6 +87,14 @@ inline bool getStackTraceHeap(FrameArray<N>& fa) {
   return detail::fixFrameArray(fa, getStackTraceHeap(fa.addresses, N));
 }
 
+template <size_t N>
+FOLLY_ALWAYS_INLINE bool getAsyncStackTraceSafe(FrameArray<N>& fa);
+
+template <size_t N>
+inline bool getAsyncStackTraceSafe(FrameArray<N>& fa) {
+  return detail::fixFrameArray(fa, getAsyncStackTraceSafe(fa.addresses, N));
+}
+
 #if FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
 
 class Symbolizer {
@@ -119,9 +127,7 @@ class Symbolizer {
       folly::Range<SymbolizedFrame*> frames);
 
   size_t symbolize(
-      const uintptr_t* addresses,
-      SymbolizedFrame* frames,
-      size_t frameCount) {
+      const uintptr_t* addresses, SymbolizedFrame* frames, size_t frameCount) {
     return symbolize(
         folly::Range<const uintptr_t*>(addresses, frameCount),
         folly::Range<SymbolizedFrame*>(frames, frameCount));
@@ -158,54 +164,6 @@ class Symbolizer {
 };
 
 /**
- * Use this class to print a stack trace from a signal handler, or other place
- * where you shouldn't allocate memory on the heap, and fsync()ing your file
- * descriptor is more important than performance.
- *
- * Make sure to create one of these on startup, not in the signal handler, as
- * the constructor allocates on the heap, whereas the other methods don't.  Best
- * practice is to just leak this object, rather than worry about destruction
- * order.
- *
- * These methods aren't thread safe, so if you could have signals on multiple
- * threads at the same time, you need to do your own locking to ensure you don't
- * call these methods from multiple threads.  They are signal safe, however.
- */
-class SafeStackTracePrinter {
- public:
-  explicit SafeStackTracePrinter(int fd = STDERR_FILENO);
-
-  virtual ~SafeStackTracePrinter() {}
-
-  /**
-   * Only allocates on the stack and is signal-safe but not thread-safe.  Don't
-   * call printStackTrace() on the same StackTracePrinter object from multiple
-   * threads at the same time.
-   *
-   * This is NOINLINE to make sure it shows up in the stack we grab, which makes
-   * it easy to skip printing it.
-   */
-  FOLLY_NOINLINE void printStackTrace(bool symbolize);
-
-  void print(StringPiece sp) {
-    printer_.print(sp);
-  }
-
-  // Flush printer_, also fsync, in case we're about to crash again...
-  void flush();
-
- protected:
-  virtual void printSymbolizedStackTrace();
-
- private:
-  static constexpr size_t kMaxStackTraceDepth = 100;
-
-  int fd_;
-  FDSymbolizePrinter printer_;
-  std::unique_ptr<FrameArray<kMaxStackTraceDepth>> addresses_;
-};
-
-/**
  * Use this class to print a stack trace from normal code.  It will malloc and
  * won't flush or sync.
  *
@@ -237,6 +195,65 @@ class FastStackTracePrinter {
   Symbolizer symbolizer_;
 };
 
+#endif // FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
+
+/**
+ * Use this class to print a stack trace from a signal handler, or other place
+ * where you shouldn't allocate memory on the heap, and fsync()ing your file
+ * descriptor is more important than performance.
+ *
+ * Make sure to create one of these on startup, not in the signal handler, as
+ * the constructor allocates on the heap, whereas the other methods don't.  Best
+ * practice is to just leak this object, rather than worry about destruction
+ * order.
+ *
+ * These methods aren't thread safe, so if you could have signals on multiple
+ * threads at the same time, you need to do your own locking to ensure you don't
+ * call these methods from multiple threads.  They are signal safe, however.
+ */
+class SafeStackTracePrinter {
+ public:
+  explicit SafeStackTracePrinter(int fd = STDERR_FILENO);
+
+  virtual ~SafeStackTracePrinter() {}
+
+  /**
+   * Only allocates on the stack and is signal-safe but not thread-safe.  Don't
+   * call printStackTrace() on the same StackTracePrinter object from multiple
+   * threads at the same time.
+   *
+   * This is NOINLINE to make sure it shows up in the stack we grab, which makes
+   * it easy to skip printing it.
+   */
+  FOLLY_NOINLINE void printStackTrace(bool symbolize);
+
+  void print(StringPiece sp) { printer_.print(sp); }
+
+  // Flush printer_, also fsync, in case we're about to crash again...
+  void flush();
+
+ protected:
+  virtual void printSymbolizedStackTrace();
+  void printUnsymbolizedStackTrace();
+
+ private:
+  static constexpr size_t kMaxStackTraceDepth = 100;
+
+  int fd_;
+  FDSymbolizePrinter printer_;
+  std::unique_ptr<FrameArray<kMaxStackTraceDepth>> addresses_;
+};
+
+/**
+ * Gets the async stack trace for the current thread and returns a string
+ * representation. Convenience function meant for debugging and logging.
+ *
+ * NOT async-signal-safe.
+ */
+std::string getAsyncStackTraceStr();
+
+#if FOLLY_HAVE_SWAPCONTEXT
+
 /**
  * Use this class in rare situations where signal handlers are running in a
  * tiny stack specified by sigaltstack.
@@ -253,7 +270,7 @@ class UnsafeSelfAllocateStackTracePrinter : public SafeStackTracePrinter {
   const long pageSizeUnchecked_ = sysconf(_SC_PAGESIZE);
 };
 
-#endif // FOLLY_HAVE_ELF && FOLLY_HAVE_DWARF
+#endif // FOLLY_HAVE_SWAPCONTEXT
 
 } // namespace symbolizer
 } // namespace folly

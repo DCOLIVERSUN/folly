@@ -171,7 +171,7 @@ coro::Task<void> Semaphore::co_wait() {
         // sure that we aren't reading it concurrently with a potential write
         // from a thread requesting cancellation.
         if (cancelled) {
-          co_yield folly::coro::co_error(folly::OperationCancelled{});
+          co_yield folly::coro::co_cancelled;
         }
 
         co_return;
@@ -187,15 +187,11 @@ coro::Task<void> Semaphore::co_wait() {
 
 #endif
 
-#if FOLLY_FUTURE_USING_FIBER
-
 namespace {
 
 class FutureWaiter final : public fibers::Baton::Waiter {
  public:
-  FutureWaiter() {
-    semaphoreWaiter.baton.setWaiter(*this);
-  }
+  FutureWaiter() { semaphoreWaiter.baton.setWaiter(*this); }
 
   void post() override {
     std::unique_ptr<FutureWaiter> destroyOnReturn{this};
@@ -229,8 +225,6 @@ SemiFuture<Unit> Semaphore::future_wait() {
       std::memory_order_acquire));
   return makeSemiFuture();
 }
-
-#endif
 
 size_t Semaphore::getCapacity() const {
   return capacity_;

@@ -16,12 +16,13 @@
 
 #include <folly/Portability.h>
 
-#if FOLLY_HAS_COROUTINES
+#include <algorithm>
 
 #include <folly/ScopeGuard.h>
 #include <folly/experimental/coro/Generator.h>
 #include <folly/portability/GTest.h>
-#include <algorithm>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -105,9 +106,7 @@ TEST_F(GeneratorTest, DestroyedBeforeCompletion_DestructsObjectsOnStack) {
   bool destructed = false;
   bool completed = false;
   auto f = [&]() -> Generator<std::uint32_t> {
-    SCOPE_EXIT {
-      destructed = true;
-    };
+    SCOPE_EXIT { destructed = true; };
 
     co_yield 1;
     co_yield 2;
